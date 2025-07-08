@@ -24,7 +24,7 @@ func GetTestWorkingDir() (string, error) {
 
 	schemerDirIndex := -1
 	for i := len(parts) - 1; i >= 0; i-- {
-		if parts[i] == "test" {
+		if parts[i] == "schemer" {
 			schemerDirIndex = i
 			break
 		}
