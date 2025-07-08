@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/inskribe/schemer/internal/templates"
 	"github.com/inskribe/schemer/internal/utils"
 	tu "github.com/inskribe/schemer/internal/utils/testutils"
 )
@@ -110,6 +111,10 @@ func TestLoadUpDeltas(t *testing.T) {
 func TestApplyUpDeltas(t *testing.T) {
 	tu.SetupTestTable(t)
 
+	tempDir := t.TempDir()
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
 	applyRequest = applyCommandArgs{PruneNoOp: false}
 
 	deltas := map[int]upDelta{
@@ -117,6 +122,14 @@ func TestApplyUpDeltas(t *testing.T) {
 		1: upDelta{Tag: 1, Data: []byte(""), PostStatus: NoExist},
 	}
 	applied := map[int]bool{}
+
+	schemerArgs := templates.SchemerTemplateArgs{
+		TableName: "schemer",
+	}
+
+	if err := schemerArgs.WriteTemplate(tempDir); err != nil {
+		t.Fatalf("failed to write table template: %v", err)
+	}
 
 	if err := applyUpDeltas(applied, deltas, tu.SharedConnection, context.Background()); err != nil {
 		t.Fatalf("failed to apply deltas: %v", err)
@@ -166,6 +179,14 @@ func TestExecuteUpCommand(t *testing.T) {
 
 	applyRequest = applyCommandArgs{
 		cherryPickedVersions: []string{"000", "002"},
+	}
+
+	schemerArgs := templates.SchemerTemplateArgs{
+		TableName: "schemer",
+	}
+
+	if err := schemerArgs.WriteTemplate(tempDir); err != nil {
+		t.Fatalf("failed to write table template: %v", err)
 	}
 
 	if err := executeUpCommand(tu.SharedConnection, context.Background()); err != nil {
