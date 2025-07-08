@@ -8,14 +8,15 @@
 
 - Versioned `.sql` delta files (`up`, `down`, and optional `post`)
 - Apply deltas in order or cherry-pick specific versions
-- Post-delta support for deferred cleanup
+- Post-delta support for deferred cleanup of corresponding Up-deltas
 - Schema state tracked via a dedicated `schemer` table
 - Simple `.env`-based configuration `optional`
-- Built with Go — no runtime dependencies
 
 ---
 
 ## 📦 Installation
+
+Ensure you have go installed,
 
 ```sh
 go install github.com/yourusername/schemer@latest
@@ -52,7 +53,7 @@ deltas/
 
 ### `schemer init`
 
-Initializes a new project in the current directory:
+Bootstraps a new project in the current directory:
 
 - Creates a `deltas/` directory
 - Generates a `.env` file with `DATABASE_URL`
@@ -65,13 +66,12 @@ environment.
 
 ---
 
-### `schemer create <name> [--post]`
+### `schemer create <name>`
 
 Creates a versioned delta group:
 
 ```
 schemer create add_users
-schemer create cleanup_sessions --post
 ```
 
 This creates:
@@ -136,7 +136,10 @@ schemer post --cherry-pick 003 --force
 
 ## 📄 .env File
 
-In a dev environment Schemer reads the connection string from `.env`:
+In a dev environment Schemer reads the connection string from a `.env` file:
+You can provide a postgres connection string with --url or a environment
+varible key name with --key. When initalizing Schemre with init you can provide 
+both `--url` and `--key` to have Schemer write the key and value to the .env file.
 
 ```env
 DATABASE_URL=postgres://user:pass@localhost:5432/mydb?sslmode=disable
@@ -153,3 +156,23 @@ A `schemer` table tracks:
 
 It's created during `init` or the first migration.
 
+
+---
+
+## 📫 Feedback & Issues
+
+Found a bug? Have a feature request or usability suggestion?
+
+Please open an issue here: [Submit an issue](https://github.com/inskribe/schemer/issues)
+
+When submitting an issue, include the following if possible:
+
+    What you were trying to do
+
+    Any relevant command or flags used
+
+    Error output (with stack trace, if any)
+
+    Environment details (OS, Go version, PostgreSQL version)
+
+We welcome all feedback — bug reports, questions, enhancements, and PRs!
