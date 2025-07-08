@@ -1,0 +1,12 @@
+# Executables
+schemer
+
+# Delta directory
+deltas/
+
+# Dev .env file
+.env
+
+# Tooling
+tooling/
+
