@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS "{{.TableName}}" (
+    tag     INTEGER PRIMARY KEY,
+    post_status INTEGER DEFAULT 0,
+    applied_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
