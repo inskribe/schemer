@@ -29,7 +29,7 @@ import (
 )
 
 func productionLogger(category enums.LogCategory, msg string, args ...interface{}) {
-	if category == enums.Info {
+	if category == enums.Debug {
 		return
 	}
 	formattedMessage := fmt.Sprintf(msg, args...)
