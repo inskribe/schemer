@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/inskribe/schemer/compare/v0.2.1...v0.2.2) (2025-07-12)
+
+
+### Bug Fixes
+
+* **misc:** fixes schemer table name and downCmd ([abaa228](https://github.com/inskribe/schemer/commit/abaa2282590f88c9fac2ae8dfe4174da0d5c0b63))
+
 ## [0.2.1](https://github.com/inskribe/schemer/compare/v0.2.0...v0.2.1) (2025-07-09)
 
 
