@@ -7,10 +7,112 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/spf13/cobra"
 
 	"github.com/inskribe/schemer/internal/utils"
 	tu "github.com/inskribe/schemer/internal/utils/testutils"
 )
+
+func TestDownCommand(t *testing.T) {
+	tu.SetupTestTable(t)
+	tempDir := tu.CreateTestDeltaFiles(t)
+
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	testCases := []struct {
+		name    string
+		request applyCommandArgs
+		verify  func(t *testing.T)
+	}{
+		{
+			name:    "Apply last",
+			request: applyCommandArgs{},
+			verify: func(t *testing.T) {
+				var count int
+				err := tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 3 {
+					t.Fatalf("expected three rows,but found %d", count)
+				}
+			},
+		},
+		{
+			name: "Cherry_Pick",
+			request: applyCommandArgs{
+				cherryPickedVersions: []string{"000", "003"},
+			},
+			verify: func(t *testing.T) {
+				var count int
+				err := tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer WHERE tag IN (0, 3)`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 0 {
+					t.Fatalf("expected zero rows,but found %d", count)
+				}
+			},
+		},
+		{
+			name:    "From_002",
+			request: applyCommandArgs{fromTag: "002"},
+			verify: func(t *testing.T) {
+				var count int
+				err := tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer WHERE tag IN (0,1,2)`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 0 {
+					t.Fatalf("expected zero rows,but found %d", count)
+				}
+			},
+		},
+		{
+			name:    "To_001",
+			request: applyCommandArgs{toTag: "001"},
+			verify: func(t *testing.T) {
+				var count int
+				err := tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer WHERE tag IN (3,2,1)`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 0 {
+					t.Fatalf("expected zero rows,but found %d", count)
+				}
+
+			},
+		},
+	}
+
+	utils.WithConn = func(connString string, fn func(*pgx.Conn, context.Context) error) error {
+		return fn(tu.SharedConnection, context.Background())
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+
+			tu.SetupTestTable(t)
+
+			insertStatement := `INSERT INTO schemer (tag) VALUES (0),(1),(2),(3)`
+			if _, err := tu.SharedConnection.Exec(context.Background(), insertStatement); err != nil {
+				t.Fatalf("failed to insert statement: %s\n v\nadditionaly: %v", insertStatement, err)
+			}
+
+			applyRequest = tc.request
+
+			downCmd.Run(&cobra.Command{}, []string{})
+
+			tc.verify(t)
+		})
+	}
+}
 
 func TestLoadDownDeltas(t *testing.T) {
 	tempDir := tu.CreateTestDeltaFiles(t)

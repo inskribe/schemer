@@ -55,7 +55,7 @@ Examples:
   schemer down --cherry-pick 001,004  # Roll back only 001 and 004
 `,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) == 0 {
+		if shouldOnlyApplyLast() {
 			err := utils.WithConn(applyRequest.connString, applyForLastUpDelta)
 			if err != nil {
 				glog.Error("%v", err)
@@ -74,6 +74,10 @@ Examples:
 
 func init() {
 	applyCmd.AddCommand(downCmd)
+}
+
+func shouldOnlyApplyLast() bool {
+	return len(applyRequest.cherryPickedVersions) == 0 && applyRequest.fromTag == "" && applyRequest.toTag == ""
 }
 
 // executeDownCommand runs the full "down" migration flow.

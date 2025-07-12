@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/inskribe/schemer/internal/utils"
 )
 
 var SharedConnection *pgx.Conn
@@ -39,13 +41,15 @@ func GetTestWorkingDir() (string, error) {
 
 func SetupTestDatabase() error {
 
-	// ok, err := utils.LoadDotEnv()
-	// if err != nil {
-	// 	return fmt.Errorf("%s", err.Error())
-	// }
-	// if !ok {
-	// 	return fmt.Errorf("failed to load .env")
-	// }
+	if os.Getenv("SCHEMER_ENV") == "local" {
+		ok, err := utils.LoadDotEnv()
+		if err != nil {
+			return fmt.Errorf("%s", err.Error())
+		}
+		if !ok {
+			return fmt.Errorf("failed to load .env")
+		}
+	}
 
 	ctx := context.Background()
 	dns, ok := os.LookupEnv("DATABASE_URL")

@@ -74,7 +74,7 @@ func ConnectDatabase(connString string) (*sql.DB, error) {
 //
 // Returns:
 //   - error: any error encountered during connection or from the callback execution
-func WithConn(connString string, fn func(*pgx.Conn, context.Context) error) error {
+var WithConn = func(connString string, fn func(*pgx.Conn, context.Context) error) error {
 	ctx := context.Background()
 	connection, err := pgx.Connect(ctx, connString)
 	if err != nil {
