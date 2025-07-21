@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/inskribe/schemer/compare/v0.2.2...v0.3.0) (2025-07-21)
+
+
+### Features
+
+* **core:** removes the need to use the [apply] before action command ([#9](https://github.com/inskribe/schemer/issues/9)) ([1f7eb82](https://github.com/inskribe/schemer/commit/1f7eb827034c0fec7391cb716ed419ab30191e2c))
+
 ## [0.2.2](https://github.com/inskribe/schemer/compare/v0.2.1...v0.2.2) (2025-07-12)
 
 
