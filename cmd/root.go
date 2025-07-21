@@ -51,7 +51,12 @@ Typical usage:
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		glog.InitializeLogger(false)
+
+		if os.Getenv("SCHEMER_ENV") == "local" {
+
+		} else {
+			glog.InitializeLogger(false)
+		}
 	},
 }
 

@@ -11,65 +11,64 @@ func TestParseApplyCommand(t *testing.T) {
 	testCases := []struct {
 		name     string
 		expected any
-		request  applyCommandArgs
+		request  CommandArgs
 	}{
 		{
 			name:     "Only Key",
 			expected: "0002",
-			request:  applyCommandArgs{connKey: "test"},
+			request:  CommandArgs{connKey: "test"},
 		},
 		{
 			name:     "Only Value",
 			expected: nil,
-			request:  applyCommandArgs{connString: "test"},
+			request:  CommandArgs{connString: "test"},
 		},
 		{
 			name:     "Empty Key Value",
 			expected: "0001",
-			request:  applyCommandArgs{},
+			request:  CommandArgs{},
 		},
 		{
 			name:     "Only From",
 			expected: nil,
-			request:  applyCommandArgs{fromTag: "000", connString: "test"},
+			request:  CommandArgs{fromTag: "000", connString: "test"},
 		},
 		{
 			name:     "Only To",
 			expected: nil,
-			request:  applyCommandArgs{toTag: "000", connString: "test"},
+			request:  CommandArgs{toTag: "000", connString: "test"},
 		},
 		{
 			name:     "From To",
 			expected: nil,
-			request:  applyCommandArgs{fromTag: "000", toTag: "001", connString: "test"},
+			request:  CommandArgs{fromTag: "000", toTag: "001", connString: "test"},
 		},
 		{
 			name:     "Cherry Pick",
 			expected: nil,
-			request:  applyCommandArgs{cherryPickedVersions: []string{"001"}, connString: "test"},
+			request:  CommandArgs{cherryPickedVersions: []string{"001"}, connString: "test"},
 		},
 		{
 			name:     "Cherry Pick and To",
 			expected: "0003",
-			request:  applyCommandArgs{cherryPickedVersions: []string{"000"}, toTag: "001", connString: "test"},
+			request:  CommandArgs{cherryPickedVersions: []string{"000"}, toTag: "001", connString: "test"},
 		},
 		{
 			name:     "Cherry Pick and From",
 			expected: "0003",
-			request:  applyCommandArgs{cherryPickedVersions: []string{"000"}, fromTag: "001", connString: "test"},
+			request:  CommandArgs{cherryPickedVersions: []string{"000"}, fromTag: "001", connString: "test"},
 		},
 		{
 			name:     "Cherry Pick and From and To",
 			expected: "0003",
-			request:  applyCommandArgs{cherryPickedVersions: []string{"000"}, fromTag: "001", toTag: "003", connString: "test"},
+			request:  CommandArgs{cherryPickedVersions: []string{"000"}, fromTag: "001", toTag: "003", connString: "test"},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			applyRequest = tc.request
 
-			err := parseApplyCommand()
+			err := parseApplyCommand(&tc.request)
 			if err == nil {
 				if err == tc.expected {
 					return

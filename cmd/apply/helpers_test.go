@@ -199,7 +199,7 @@ func BenchmarkPruneNoOp(b *testing.B) {
 func TestPruneNoOpUp(t *testing.T) {
 	glog.InitializeLogger(true)
 
-	testData := map[int]upDelta{
+	testData := map[int]UpDelta{
 		1: {Tag: 1, Data: []byte("-- just a comment")},
 		2: {Tag: 2, Data: []byte("SELECT * FROM users;"), PostStatus: Pending},
 		3: {Tag: 3, Data: []byte("/* block comment */")},
@@ -233,7 +233,7 @@ func TestPruneNoOpUp(t *testing.T) {
 func BenchmarkPruneNoOpUp(b *testing.B) {
 	glog.InitializeLogger(true)
 
-	base := make(map[int]upDelta, 10000)
+	base := make(map[int]UpDelta, 10000)
 	for i := 0; i < 10000; i++ {
 		var sql []byte
 		if i%5 == 0 {
@@ -241,12 +241,12 @@ func BenchmarkPruneNoOpUp(b *testing.B) {
 		} else {
 			sql = []byte("-- no-op")
 		}
-		base[i] = upDelta{Tag: i, Data: sql, PostStatus: Pending}
+		base[i] = UpDelta{Tag: i, Data: sql, PostStatus: Pending}
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		clone := make(map[int]upDelta, len(base))
+		clone := make(map[int]UpDelta, len(base))
 		for k, v := range base {
 			clone[k] = v
 		}
@@ -257,43 +257,43 @@ func BenchmarkPruneNoOpUp(b *testing.B) {
 func TestGetRequestedDeltas(t *testing.T) {
 	mockData := []struct {
 		name     string
-		args     applyCommandArgs
+		args     CommandArgs
 		expected bool
-		verify   func(req *deltaRequest) bool
+		verify   func(req *DeltaRequest) bool
 	}{
 		{
 			name:     "apply all",
-			args:     applyCommandArgs{},
+			args:     CommandArgs{},
 			expected: true,
-			verify: func(req *deltaRequest) bool {
+			verify: func(req *DeltaRequest) bool {
 				return req != nil && req.Cherries == nil && req.From == nil && req.To == nil
 			},
 		}, {
 			name:     "apply from",
-			args:     applyCommandArgs{fromTag: "001"},
+			args:     CommandArgs{fromTag: "001"},
 			expected: true,
-			verify: func(req *deltaRequest) bool {
+			verify: func(req *DeltaRequest) bool {
 				return *req.From == 1 && req.To == nil && req.Cherries == nil
 			},
 		}, {
 			name:     "apply to",
-			args:     applyCommandArgs{toTag: "001"},
+			args:     CommandArgs{toTag: "001"},
 			expected: true,
-			verify: func(req *deltaRequest) bool {
+			verify: func(req *DeltaRequest) bool {
 				return *req.To == 1 && req.From == nil && req.Cherries == nil
 			},
 		}, {
 			name:     "apply range",
-			args:     applyCommandArgs{fromTag: "000", toTag: "003"},
+			args:     CommandArgs{fromTag: "000", toTag: "003"},
 			expected: true,
-			verify: func(req *deltaRequest) bool {
+			verify: func(req *DeltaRequest) bool {
 				return *req.To == 3 && *req.From == 0 && req.Cherries == nil
 			},
 		}, {
 			name:     "apply cherries",
-			args:     applyCommandArgs{cherryPickedVersions: []string{"001", "003", "999"}},
+			args:     CommandArgs{cherryPickedVersions: []string{"001", "003", "999"}},
 			expected: true,
-			verify: func(req *deltaRequest) bool {
+			verify: func(req *DeltaRequest) bool {
 				valid := req.To == nil && req.From == nil
 				if (*req.Cherries)[1] && (*req.Cherries)[3] && (*req.Cherries)[999] {
 					return valid
@@ -305,7 +305,7 @@ func TestGetRequestedDeltas(t *testing.T) {
 
 	for _, data := range mockData {
 		t.Run(data.name, func(t *testing.T) {
-			req, err := data.args.getRequestedDeltas()
+			req, err := data.args.GetRequestedDeltas()
 			if err != nil {
 				t.Errorf("%v", err)
 			}
@@ -336,7 +336,7 @@ func TestGetAppliedDeltas(t *testing.T) {
 		t.Errorf("failed to stage data: insert: %s", err.Error())
 	}
 
-	appliedDeltas, err := getAppliedDeltas(testutils.SharedConnection, ctx)
+	appliedDeltas, err := GetAppliedDeltas(testutils.SharedConnection, ctx)
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}

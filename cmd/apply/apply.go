@@ -25,71 +25,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
-
-	"github.com/inskribe/schemer/cmd"
 	er "github.com/inskribe/schemer/internal/errschemer"
-	"github.com/inskribe/schemer/internal/glog"
-	"github.com/inskribe/schemer/internal/utils"
 )
-
-var (
-	applyRequest applyCommandArgs
-
-	applyCmd = &cobra.Command{
-		Use:   "apply [sub-command] [options]",
-		Short: "Run a migration command (up, down, or post)",
-		Long: `Apply executes the specified migration direction against your database.
-
-Supported subcommands:
-  up     - applies unapplied deltas
-  down   - rolls back previously applied deltas
-  post   - executes post-migration cleanup steps
-
-Each subcommand supports range-based or cherry-picked delta selection using --from, --to, or --cherry-pick.
-Use --dry-run to preview changes without applying them.
-`,
-		PersistentPreRunE: func(command *cobra.Command, args []string) error {
-			if cmd.RootCmd.PersistentPreRun != nil {
-				cmd.RootCmd.PersistentPreRun(command, args)
-			}
-
-			_, err := utils.LoadDotEnv()
-			if err != nil {
-				glog.Error("%v", err)
-				return err
-			}
-
-			if err := parseApplyCommand(); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-)
-
-func init() {
-	cmd.RootCmd.AddCommand(applyCmd)
-	applyCmd.PersistentFlags().StringVarP(&applyRequest.connKey, "conn-key", "k", "", "The key to fetch the environment variable value for the database connection string.")
-	applyCmd.PersistentFlags().BoolVarP(&applyRequest.dryRun, "dry-run", "d", false, "Performs a dry run and outputs the actions. No actions will be commited against the database.")
-	applyCmd.PersistentFlags().StringVarP(&applyRequest.connString, "conn-string", "s", "", "The driver specific connection string. If passed the connection key will be ignored.")
-	applyCmd.PersistentFlags().BoolVar(&applyRequest.PruneNoOp, "prune", false, `Enable no-operation file prunning. Scan delta files and skip applying files
-that only contains comments and empty lines. This can be useful for large replays to avoid unnessecarry database calls.`)
-	applyCmd.PersistentFlags().StringVarP(&applyRequest.toTag, "to", "t", "", `Specify the version to end at. Accepted formats are: 
-  4   - No Padding
-  004 - Padded zeros`)
-
-	applyCmd.PersistentFlags().StringVarP(&applyRequest.fromTag, "from", "f", "", `Specify the version to begin at. Accepted formats are:
-  4   - No Padding
-  004 - Padded zeros`)
-	applyCmd.PersistentFlags().StringArrayVarP(&applyRequest.cherryPickedVersions, "cherry-pick", "c", nil, `Specify deltas to execute againg the database.
-It is possible to cherry pick non-consecutive deltas. This is not reccomended and do so at your own risk.
-Accepted formats are:
-  4   - No Padding
-  004 - Padded zeros
-		`)
-
-}
 
 // parseApplyCommand validates and resolves input flags for the apply command.
 // Ensures that either --conn-key or --conn-string is provided, and enforces that
@@ -97,8 +34,8 @@ Accepted formats are:
 //
 // Returns:
 //   - error: SchemerErr with a specific code if validation fails
-func parseApplyCommand() error {
-	if applyRequest.connKey == "" && applyRequest.connString == "" {
+var parseApplyCommand = func(request *CommandArgs) error {
+	if request.connKey == "" && request.connString == "" {
 		return &er.SchemerErr{
 			Code:    "0001",
 			Message: "--conn-key or --conn-string must be used.",
@@ -106,18 +43,18 @@ func parseApplyCommand() error {
 		}
 	}
 
-	if applyRequest.connString == "" {
-		applyRequest.connString = os.Getenv(applyRequest.connKey)
-		if applyRequest.connString == "" {
+	if request.connString == "" {
+		request.connString = os.Getenv(request.connKey)
+		if request.connString == "" {
 			return &er.SchemerErr{
 				Code:    "0002",
-				Message: fmt.Sprintf("failed to get environment variable value for key: %s", applyRequest.connKey),
+				Message: fmt.Sprintf("failed to get environment variable value for key: %s", request.connKey),
 				Err:     nil,
 			}
 		}
 	}
 
-	if len(applyRequest.cherryPickedVersions) > 0 && (applyRequest.toTag != "" || applyRequest.fromTag != "") {
+	if len(request.cherryPickedVersions) > 0 && (request.toTag != "" || request.fromTag != "") {
 		return &er.SchemerErr{
 			Code:    "0003",
 			Message: "flags --from/--to cannot be used with --cherry-pick",

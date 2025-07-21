@@ -17,8 +17,8 @@ const _postStatusEnum_name = "NoExistPendingApplied"
 
 var _postStatusEnum_index = [...]uint8{0, 7, 14, 21}
 
-func (i postStatusEnum) String() string {
-	if i < 0 || i >= postStatusEnum(len(_postStatusEnum_index)-1) {
+func (i PostStatusEnum) String() string {
+	if i < 0 || i >= PostStatusEnum(len(_postStatusEnum_index)-1) {
 		return "postStatusEnum(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
 	return _postStatusEnum_name[_postStatusEnum_index[i]:_postStatusEnum_index[i+1]]

@@ -19,13 +19,13 @@ func TestLoadUpDeltas(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		request *deltaRequest
-		verify  func(args *deltaRequest)
+		request *DeltaRequest
+		verify  func(args *DeltaRequest)
 	}{
 		{
 			name:    "valid_post_status",
-			request: &deltaRequest{},
-			verify: func(args *deltaRequest) {
+			request: &DeltaRequest{},
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadUpDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -42,10 +42,10 @@ func TestLoadUpDeltas(t *testing.T) {
 		},
 		{
 			name: "Cherry_Pick",
-			request: &deltaRequest{
+			request: &DeltaRequest{
 				Cherries: &map[int]bool{1: true, 3: true},
 			},
-			verify: func(args *deltaRequest) {
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadUpDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -63,8 +63,8 @@ func TestLoadUpDeltas(t *testing.T) {
 		},
 		{
 			name:    "From_002",
-			request: &deltaRequest{From: tu.Ptr(2)},
-			verify: func(args *deltaRequest) {
+			request: &DeltaRequest{From: tu.Ptr(2)},
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadUpDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -82,8 +82,8 @@ func TestLoadUpDeltas(t *testing.T) {
 		},
 		{
 			name:    "To_001",
-			request: &deltaRequest{To: tu.Ptr(1)},
-			verify: func(args *deltaRequest) {
+			request: &DeltaRequest{To: tu.Ptr(1)},
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadUpDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -115,11 +115,11 @@ func TestApplyUpDeltas(t *testing.T) {
 	utils.GetDeltaPath = func() (string, error) {
 		return tempDir, nil
 	}
-	applyRequest = applyCommandArgs{PruneNoOp: false}
+	upRequest = CommandArgs{PruneNoOp: false}
 
-	deltas := map[int]upDelta{
-		0: upDelta{Tag: 0, Data: []byte(""), PostStatus: Pending},
-		1: upDelta{Tag: 1, Data: []byte(""), PostStatus: NoExist},
+	deltas := map[int]UpDelta{
+		0: UpDelta{Tag: 0, Data: []byte(""), PostStatus: Pending},
+		1: UpDelta{Tag: 1, Data: []byte(""), PostStatus: NoExist},
 	}
 	applied := map[int]bool{}
 
@@ -143,7 +143,7 @@ func TestApplyUpDeltas(t *testing.T) {
 
 	for rows.Next() {
 		var tag int
-		var status postStatusEnum
+		var status PostStatusEnum
 
 		if err := rows.Scan(&tag, &status); err != nil {
 			t.Fatalf("row scan failed: %v", err)
@@ -177,7 +177,7 @@ func TestExecuteUpCommand(t *testing.T) {
 		return tempDir, nil
 	}
 
-	applyRequest = applyCommandArgs{
+	upRequest = CommandArgs{
 		cherryPickedVersions: []string{"000", "002"},
 	}
 
@@ -200,14 +200,14 @@ func TestExecuteUpCommand(t *testing.T) {
 		t.Fatalf("failed to verify deltas applied: %v", err)
 	}
 
-	deltas := map[int]postStatusEnum{
+	deltas := map[int]PostStatusEnum{
 		1: Pending,
 		2: NoExist,
 	}
 
 	for rows.Next() {
 		var tag int
-		var status postStatusEnum
+		var status PostStatusEnum
 
 		rows.Scan(&tag, &status)
 

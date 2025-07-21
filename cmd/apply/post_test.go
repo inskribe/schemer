@@ -16,27 +16,27 @@ func TestLoadPostDeltas(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		request  *deltaRequest
+		request  *DeltaRequest
 		expected map[int]bool
 	}{
 		{
 			name:     "Load_All",
-			request:  &deltaRequest{},
+			request:  &DeltaRequest{},
 			expected: map[int]bool{0: true, 1: true},
 		},
 		{
 			name:     "From_001",
-			request:  &deltaRequest{From: tu.Ptr(1)},
+			request:  &DeltaRequest{From: tu.Ptr(1)},
 			expected: map[int]bool{1: true},
 		},
 		{
 			name:     "To_000",
-			request:  &deltaRequest{To: tu.Ptr(0)},
+			request:  &DeltaRequest{To: tu.Ptr(0)},
 			expected: map[int]bool{0: true},
 		},
 		{
 			name:     "Cherry_pick",
-			request:  &deltaRequest{Cherries: &map[int]bool{1: true}},
+			request:  &DeltaRequest{Cherries: &map[int]bool{1: true}},
 			expected: map[int]bool{1: true},
 		},
 	}
@@ -65,7 +65,7 @@ func TestFetchPostStatuses(t *testing.T) {
 		t.Fatalf("failed to insert mock data: %v", err)
 	}
 
-	expected := map[int]postStatusEnum{0: 1, 1: 0, 2: 2}
+	expected := map[int]PostStatusEnum{0: 1, 1: 0, 2: 2}
 	statuses, err := fetchPostStatuses(tu.SharedConnection, context.Background())
 	if err != nil {
 		t.Fatalf("failed to fetch post statuses: %v", err)
@@ -93,28 +93,28 @@ func TestExecutePostCommand(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		request  applyCommandArgs
-		expected map[int]postStatusEnum
+		request  CommandArgs
+		expected map[int]PostStatusEnum
 	}{
 		{
 			name:     "Apply_All",
-			request:  applyCommandArgs{},
-			expected: map[int]postStatusEnum{0: 2, 1: 2, 2: 0, 3: 0},
+			request:  CommandArgs{},
+			expected: map[int]PostStatusEnum{0: 2, 1: 2, 2: 0, 3: 0},
 		},
 		{
 			name:     "From_001",
-			request:  applyCommandArgs{fromTag: "001"},
-			expected: map[int]postStatusEnum{0: 1, 1: 2, 2: 0, 3: 0},
+			request:  CommandArgs{fromTag: "001"},
+			expected: map[int]PostStatusEnum{0: 1, 1: 2, 2: 0, 3: 0},
 		},
 		{
 			name:     "To_000",
-			request:  applyCommandArgs{toTag: "000"},
-			expected: map[int]postStatusEnum{0: 2, 1: 1, 2: 0, 3: 0},
+			request:  CommandArgs{toTag: "000"},
+			expected: map[int]PostStatusEnum{0: 2, 1: 1, 2: 0, 3: 0},
 		},
 		{
 			name:     "Cherry_pick",
-			request:  applyCommandArgs{cherryPickedVersions: []string{"000", "001"}},
-			expected: map[int]postStatusEnum{0: 2, 1: 2, 2: 0, 3: 0},
+			request:  CommandArgs{cherryPickedVersions: []string{"000", "001"}},
+			expected: map[int]PostStatusEnum{0: 2, 1: 2, 2: 0, 3: 0},
 		},
 	}
 
@@ -125,7 +125,7 @@ func TestExecutePostCommand(t *testing.T) {
 				t.Fatalf("failed to insert mock data: %v", err)
 			}
 
-			applyRequest = tc.request
+			postRequest = tc.request
 			if err := executePostCommand(tu.SharedConnection, context.Background()); err != nil {
 				t.Fatalf("failed to execute post command: %v", err)
 			}
@@ -137,11 +137,11 @@ func TestExecutePostCommand(t *testing.T) {
 			}
 			defer rows.Close()
 
-			actual := map[int]postStatusEnum{}
+			actual := map[int]PostStatusEnum{}
 
 			for rows.Next() {
 				var tag int
-				var status postStatusEnum
+				var status PostStatusEnum
 				if err := rows.Scan(&tag, &status); err != nil {
 					t.Fatalf("failed to scan row: %v", err)
 				}

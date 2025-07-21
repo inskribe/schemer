@@ -33,13 +33,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
 
+	"github.com/inskribe/schemer/cmd"
 	"github.com/inskribe/schemer/internal/errschemer"
 	"github.com/inskribe/schemer/internal/glog"
 	"github.com/inskribe/schemer/internal/utils"
 )
 
 var (
-	postRequest postCmdRequest
+	postoptions PostForce
+	postRequest CommandArgs
 
 	postCmd = &cobra.Command{
 		Use:   "post [options]",
@@ -58,8 +60,23 @@ Examples:
   schemer post --cherry-pick 003,006    # Apply only selected post deltas
   schemer post --cherry-pick 004 --force
 `,
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := utils.WithConn(applyRequest.connString, executePostCommand); err != nil {
+		Run: func(command *cobra.Command, args []string) {
+			if cmd.RootCmd.PersistentPreRun != nil {
+				cmd.RootCmd.PersistentPreRun(command, args)
+			}
+
+			_, err := utils.LoadDotEnv()
+			if err != nil {
+				glog.Error("%v", err)
+				return
+			}
+
+			if err := parseApplyCommand(&postRequest); err != nil {
+				glog.Error("%v", err)
+				return
+			}
+
+			if err := utils.WithConn(postRequest.connString, executePostCommand); err != nil {
 				glog.Error("%v", err)
 				return
 			}
@@ -68,8 +85,27 @@ Examples:
 )
 
 func init() {
-	applyCmd.AddCommand(postCmd)
-	postCmd.Flags().BoolVar(&postRequest.Force, "force", false, `Force will apply a post delta even if the corresponding up delta tag is not marked with
+	cmd.RootCmd.AddCommand(postCmd)
+	postCmd.PersistentFlags().StringVarP(&postRequest.connKey, "conn-key", "k", "", "The key to fetch the environment variable value for the database connection string.")
+	postCmd.PersistentFlags().BoolVarP(&postRequest.dryRun, "dry-run", "d", false, "Performs a dry run and outputs the actions. No actions will be commited against the database.")
+	postCmd.PersistentFlags().StringVarP(&postRequest.connString, "conn-string", "s", "", "The driver specific connection string. If passed the connection key will be ignored.")
+	postCmd.PersistentFlags().BoolVar(&postRequest.PruneNoOp, "prune", false, `Enable no-operation file prunning. Scan delta files and skip applying files
+that only contains comments and empty lines. This can be useful for large replays to avoid unnessecarry database calls.`)
+	postCmd.PersistentFlags().StringVarP(&postRequest.toTag, "to", "t", "", `Specify the version to end at. Accepted formats are: 
+  4   - No Padding
+  004 - Padded zeros`)
+
+	postCmd.PersistentFlags().StringVarP(&postRequest.fromTag, "from", "f", "", `Specify the version to begin at. Accepted formats are:
+  4   - No Padding
+  004 - Padded zeros`)
+	postCmd.PersistentFlags().StringArrayVarP(&postRequest.cherryPickedVersions, "cherry-pick", "c", nil, `Specify deltas to execute againg the database.
+It is possible to cherry pick non-consecutive deltas. This is not reccomended and do so at your own risk.
+Accepted formats are:
+  4   - No Padding
+  004 - Padded zeros
+		`)
+
+	postCmd.Flags().BoolVar(&postoptions.Force, "force", false, `Force will apply a post delta even if the corresponding up delta tag is not marked with
 a post delta. This is a convinece flag to recover from a unintended state. 
 Post file should be created with schemer create [name] --post which will attach the 
 post delta to the up delta. When using force schemer will attach the post to the corresponding up manualy. `)
@@ -85,7 +121,7 @@ post delta to the up delta. When using force schemer will attach the post to the
 // Returns:
 //   - map[int]PostStatusEnum: mapping of delta tags to their post status values
 //   - error: non-nil if the query, scan, or row iteration fails
-func fetchPostStatuses(conn *pgx.Conn, ctx context.Context) (map[int]postStatusEnum, error) {
+func fetchPostStatuses(conn *pgx.Conn, ctx context.Context) (map[int]PostStatusEnum, error) {
 	statement := `SELECT tag, post_status FROM schemer WHERE post_status > 0;`
 	rows, err := conn.Query(ctx, statement)
 	if err != nil {
@@ -98,10 +134,10 @@ func fetchPostStatuses(conn *pgx.Conn, ctx context.Context) (map[int]postStatusE
 
 	defer rows.Close()
 
-	result := make(map[int]postStatusEnum)
+	result := make(map[int]PostStatusEnum)
 	for rows.Next() {
 		var tag int
-		var postStatus postStatusEnum
+		var postStatus PostStatusEnum
 		if err := rows.Scan(&tag, &postStatus); err != nil {
 			return nil, &errschemer.SchemerErr{
 				Code:    "0041",
@@ -134,7 +170,7 @@ func fetchPostStatuses(conn *pgx.Conn, ctx context.Context) (map[int]postStatusE
 // Returns:
 //   - map[int]PostDelta: a map of tag numbers to their corresponding PostDelta
 //   - error: non-nil if fetching statuses, reading deltas, or scanning tags fails
-func loadPostDeltas(request *deltaRequest, conn *pgx.Conn, ctx context.Context) (map[int]postDelta, error) {
+func loadPostDeltas(request *DeltaRequest, conn *pgx.Conn, ctx context.Context) (map[int]PostDelta, error) {
 	deltaPath, err := utils.GetDeltaPath()
 	if err != nil {
 		return nil, err
@@ -175,7 +211,7 @@ func loadPostDeltas(request *deltaRequest, conn *pgx.Conn, ctx context.Context) 
 	}
 
 	expression := regexp.MustCompile(`^(\d+)_.*\.post\.sql$`)
-	result := make(map[int]postDelta)
+	result := make(map[int]PostDelta)
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -220,7 +256,7 @@ func loadPostDeltas(request *deltaRequest, conn *pgx.Conn, ctx context.Context) 
 		}
 
 		val, exist := avaliabePost[tag]
-		if !exist && !postRequest.Force {
+		if !exist && !postoptions.Force {
 			glog.Warn(`Skipping post delta %s: up delta %s has no knowledge of post.
 If the post delta was added after up delta was created you can apply the post delta 
 with --force to recover from current state.`, utils.ToPrefix(tag), utils.ToPrefix(tag))
@@ -230,7 +266,7 @@ with --force to recover from current state.`, utils.ToPrefix(tag), utils.ToPrefi
 			continue
 		}
 
-		postDelta := postDelta{
+		postDelta := PostDelta{
 			Tag:        tag,
 			Data:       contents,
 			PostStatus: Applied,
@@ -251,7 +287,7 @@ with --force to recover from current state.`, utils.ToPrefix(tag), utils.ToPrefi
 // Returns:
 //   - error: non-nil if any post delta fails to apply or if schemer table update fails
 func executePostCommand(conn *pgx.Conn, ctx context.Context) error {
-	request, err := applyRequest.getRequestedDeltas()
+	request, err := postRequest.GetRequestedDeltas()
 	if err != nil {
 		return err
 	}
