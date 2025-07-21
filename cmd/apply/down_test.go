@@ -23,12 +23,12 @@ func TestDownCommand(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		request applyCommandArgs
+		request CommandArgs
 		verify  func(t *testing.T)
 	}{
 		{
 			name:    "Apply last",
-			request: applyCommandArgs{},
+			request: CommandArgs{},
 			verify: func(t *testing.T) {
 				var count int
 				err := tu.SharedConnection.QueryRow(context.Background(),
@@ -43,7 +43,7 @@ func TestDownCommand(t *testing.T) {
 		},
 		{
 			name: "Cherry_Pick",
-			request: applyCommandArgs{
+			request: CommandArgs{
 				cherryPickedVersions: []string{"000", "003"},
 			},
 			verify: func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestDownCommand(t *testing.T) {
 		},
 		{
 			name:    "From_002",
-			request: applyCommandArgs{fromTag: "002"},
+			request: CommandArgs{fromTag: "002"},
 			verify: func(t *testing.T) {
 				var count int
 				err := tu.SharedConnection.QueryRow(context.Background(),
@@ -75,7 +75,7 @@ func TestDownCommand(t *testing.T) {
 		},
 		{
 			name:    "To_001",
-			request: applyCommandArgs{toTag: "001"},
+			request: CommandArgs{toTag: "001"},
 			verify: func(t *testing.T) {
 				var count int
 				err := tu.SharedConnection.QueryRow(context.Background(),
@@ -94,6 +94,10 @@ func TestDownCommand(t *testing.T) {
 	utils.WithConn = func(connString string, fn func(*pgx.Conn, context.Context) error) error {
 		return fn(tu.SharedConnection, context.Background())
 	}
+	originalState := parseApplyCommand
+	parseApplyCommand = func(request *CommandArgs) error {
+		return nil
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,13 +109,15 @@ func TestDownCommand(t *testing.T) {
 				t.Fatalf("failed to insert statement: %s\n v\nadditionaly: %v", insertStatement, err)
 			}
 
-			applyRequest = tc.request
+			downRequest = tc.request
 
 			downCmd.Run(&cobra.Command{}, []string{})
 
 			tc.verify(t)
 		})
 	}
+
+	parseApplyCommand = originalState
 }
 
 func TestLoadDownDeltas(t *testing.T) {
@@ -123,13 +129,13 @@ func TestLoadDownDeltas(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		request *deltaRequest
-		verify  func(args *deltaRequest)
+		request *DeltaRequest
+		verify  func(args *DeltaRequest)
 	}{
 		{
 			name:    "load_all",
-			request: &deltaRequest{},
-			verify: func(args *deltaRequest) {
+			request: &DeltaRequest{},
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadDownDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -143,10 +149,10 @@ func TestLoadDownDeltas(t *testing.T) {
 		},
 		{
 			name: "Cherry_Pick",
-			request: &deltaRequest{
+			request: &DeltaRequest{
 				Cherries: &map[int]bool{1: true, 3: true},
 			},
-			verify: func(args *deltaRequest) {
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadDownDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -164,8 +170,8 @@ func TestLoadDownDeltas(t *testing.T) {
 		},
 		{
 			name:    "From_002",
-			request: &deltaRequest{From: tu.Ptr(2)},
-			verify: func(args *deltaRequest) {
+			request: &DeltaRequest{From: tu.Ptr(2)},
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadUpDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -183,8 +189,8 @@ func TestLoadDownDeltas(t *testing.T) {
 		},
 		{
 			name:    "To_001",
-			request: &deltaRequest{To: tu.Ptr(1)},
-			verify: func(args *deltaRequest) {
+			request: &DeltaRequest{To: tu.Ptr(1)},
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadUpDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
@@ -205,8 +211,8 @@ func TestLoadDownDeltas(t *testing.T) {
 		},
 		{
 			name:    "Last",
-			request: &deltaRequest{LastTag: tu.Ptr(3)},
-			verify: func(args *deltaRequest) {
+			request: &DeltaRequest{LastTag: tu.Ptr(3)},
+			verify: func(args *DeltaRequest) {
 				deltas, err := loadDownDeltas(args)
 				if err != nil {
 					t.Fatalf("failed to load down deltas: %v", err)
@@ -250,7 +256,7 @@ func TestApplyForLastUpDelta(t *testing.T) {
 
 	row := tu.SharedConnection.QueryRow(context.Background(), verifyStatement)
 	var tag int
-	var status postStatusEnum
+	var status PostStatusEnum
 	var createdAt time.Time
 	if err := row.Scan(&tag, &status, &createdAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -273,12 +279,12 @@ func TestExecuteDownCommand(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		request applyCommandArgs
+		request CommandArgs
 		verify  func()
 	}{
 		{
 			name:    "load_all",
-			request: applyCommandArgs{},
+			request: CommandArgs{},
 			verify: func() {
 				var count int
 				err := tu.SharedConnection.QueryRow(context.Background(),
@@ -293,7 +299,7 @@ func TestExecuteDownCommand(t *testing.T) {
 		},
 		{
 			name: "Cherry_Pick",
-			request: applyCommandArgs{
+			request: CommandArgs{
 				cherryPickedVersions: []string{"000", "003"},
 			},
 			verify: func() {
@@ -310,7 +316,7 @@ func TestExecuteDownCommand(t *testing.T) {
 		},
 		{
 			name:    "From_002",
-			request: applyCommandArgs{fromTag: "002"},
+			request: CommandArgs{fromTag: "002"},
 			verify: func() {
 				var count int
 				err := tu.SharedConnection.QueryRow(context.Background(),
@@ -325,7 +331,7 @@ func TestExecuteDownCommand(t *testing.T) {
 		},
 		{
 			name:    "To_001",
-			request: applyCommandArgs{toTag: "001"},
+			request: CommandArgs{toTag: "001"},
 			verify: func() {
 				var count int
 				err := tu.SharedConnection.QueryRow(context.Background(),
@@ -351,7 +357,7 @@ func TestExecuteDownCommand(t *testing.T) {
 				t.Fatalf("failed to insert statement: %s\n v\nadditionaly: %v", insertStatement, err)
 			}
 
-			applyRequest = tc.request
+			downRequest = tc.request
 			if err := executeDownCommand(tu.SharedConnection, context.Background()); err != nil {
 				t.Fatalf("Failed test case %s: %v", tc.name, err)
 			}

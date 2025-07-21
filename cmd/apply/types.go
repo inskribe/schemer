@@ -23,11 +23,11 @@ package apply
 
 //go:generate stringer -type=postStatusEnum
 
-// applyCommandArgs holds parsed CLI arguments for a migration command.
+// CommandArgs holds parsed CLI arguments for a migration command.
 // Note: the meaning of toTag and fromTag depends on the command type:
 //   - For "up": fromTag is the lower bound, toTag is the upper bound.
 //   - For "down": fromTag is the upper bound, toTag is the lower bound.
-type applyCommandArgs struct {
+type CommandArgs struct {
 	dryRun               bool     // if true, prints actions without executing them
 	PruneNoOp            bool     // if true, skips deltas that are no-ops
 	connKey              string   // the environment key to retirve the PostgreSQL connection string. Ignored if connString is passed.
@@ -37,7 +37,7 @@ type applyCommandArgs struct {
 	cherryPickedVersions []string // specific delta tags to apply instead of a range
 }
 
-// deltaRequest defines the range or specific set of deltas to apply.
+// DeltaRequest defines the range or specific set of deltas to apply.
 //
 // For an "up" command:
 //   - From is the lower bound (inclusive)
@@ -48,7 +48,7 @@ type applyCommandArgs struct {
 //   - To is the lower bound (inclusive)
 //
 // If Cherries is set, it overrides From/To and applies only the specified tags.
-type deltaRequest struct {
+type DeltaRequest struct {
 	To       *int          // tag boundary (upper for up, lower for down)
 	From     *int          // tag boundary (lower for up, upper for down)
 	Cherries *map[int]bool // specific delta tags to apply; overrides From/To if set
@@ -56,34 +56,34 @@ type deltaRequest struct {
 }
 
 // Represents user input for post command.
-type postCmdRequest struct {
+type PostForce struct {
 	Force bool // allow applying post deltas even if not registered in schemer
 }
 
-// postStatusEnum represents the state of a post delta.
+// PostStatusEnum represents the state of a post delta.
 //
 // Possible values:
 //   - 0: NoExist (no associated post delta)
 //   - 1: Pending (post delta exists but hasn't been applied)
 //   - 2: Applied (post delta has been executed)
-type postStatusEnum int
+type PostStatusEnum int
 
 const (
-	NoExist postStatusEnum = iota // no associated post delta
+	NoExist PostStatusEnum = iota // no associated post delta
 	Pending                       // post delta exists but has not been applied
 	Applied                       // post delta has been successfully applied
 )
 
-// postDelta represents a post-migration delta and its metadata.
-type postDelta struct {
+// PostDelta represents a post-migration delta and its metadata.
+type PostDelta struct {
 	Tag        int            // unique identifier of the delta
 	Data       []byte         // raw SQL content of the post delta
-	PostStatus postStatusEnum // current post status (e.g., Pending, Applied)
+	PostStatus PostStatusEnum // current post status (e.g., Pending, Applied)
 }
 
-// upDelta represents a forward (up) delta and its metadata.
-type upDelta struct {
+// UpDelta represents a forward (up) delta and its metadata.
+type UpDelta struct {
 	Tag        int            // unique identifier of the delta
 	Data       []byte         // raw SQL content of the up delta
-	PostStatus postStatusEnum // post delta status (e.g., NoExist, Pending)
+	PostStatus PostStatusEnum // post delta status (e.g., NoExist, Pending)
 }

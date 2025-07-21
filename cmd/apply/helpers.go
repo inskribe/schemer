@@ -42,7 +42,7 @@ import (
 //
 // Params:
 //   - data: pointer to a map of delta tags to raw SQL bytes; will be mutated directly
-func PruneNoOpUp(data *map[int]upDelta) {
+func PruneNoOpUp(data *map[int]UpDelta) {
 	var group sync.WaitGroup
 
 	noOps := make(chan int, len(*data))
@@ -140,14 +140,14 @@ func IsNoOpSql(data string) bool {
 	return true
 }
 
-// getRequestedDeltas parses the user's migration flags into a DeltaRequest.
+// GetRequestedDeltas parses the user's migration flags into a DeltaRequest.
 // Converts --from, --to, and --cherry-pick CLI inputs into a structured request.
 //
 // Returns:
 //   - *deltaRequest: the constructed delta request with range or specific tags
 //   - error: non-nil if any tag is not a valid integer
-func (args applyCommandArgs) getRequestedDeltas() (*deltaRequest, error) {
-	var result deltaRequest
+func (args CommandArgs) GetRequestedDeltas() (*DeltaRequest, error) {
+	var result DeltaRequest
 	if args.fromTag != "" {
 		val, err := strconv.Atoi(args.fromTag)
 		if err != nil {
@@ -195,7 +195,7 @@ func (args applyCommandArgs) getRequestedDeltas() (*deltaRequest, error) {
 	return &result, nil
 }
 
-// getAppliedDeltas retrieves applied deltas from the schemer table.
+// GetAppliedDeltas retrieves applied deltas from the schemer table.
 // Queries the database for all applied delta tags and returns them as a map.
 //
 // Params:
@@ -205,7 +205,7 @@ func (args applyCommandArgs) getRequestedDeltas() (*deltaRequest, error) {
 // Returns:
 //   - map[int]bool: a map of applied delta tags where the key is the tag version and value is true
 //   - error: non-nil if the schemer table is missing or a query/scan error occurs
-func getAppliedDeltas(connection *pgx.Conn, ctx context.Context) (map[int]bool, error) {
+func GetAppliedDeltas(connection *pgx.Conn, ctx context.Context) (map[int]bool, error) {
 	if connection == nil {
 		return nil, &errschemer.SchemerErr{
 			Code:    "0020",

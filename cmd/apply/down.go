@@ -34,15 +34,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
 
+	"github.com/inskribe/schemer/cmd"
 	"github.com/inskribe/schemer/internal/errschemer"
 	"github.com/inskribe/schemer/internal/glog"
 	"github.com/inskribe/schemer/internal/utils"
 )
 
-var downCmd = &cobra.Command{
-	Use:   "down [options]",
-	Short: "Roll back previously applied deltas",
-	Long: `The down command rolls back applied deltas in reverse order.
+var (
+	downRequest CommandArgs
+	downCmd     = &cobra.Command{
+		Use:   "down [options]",
+		Short: "Roll back previously applied deltas",
+		Long: `The down command rolls back applied deltas in reverse order.
 
 By default, it rolls back only the most recently applied delta.
 You can specify a rollback range using --from and --to flags, or use --cherry-pick to target specific deltas.
@@ -54,30 +57,64 @@ Examples:
   schemer down --from 005 --to 003    # Roll back from 005 down to 003
   schemer down --cherry-pick 001,004  # Roll back only 001 and 004
 `,
-	Run: func(cmd *cobra.Command, args []string) {
-		if shouldOnlyApplyLast() {
-			err := utils.WithConn(applyRequest.connString, applyForLastUpDelta)
+		Run: func(command *cobra.Command, args []string) {
+			if cmd.RootCmd.PersistentPreRun != nil {
+				cmd.RootCmd.PersistentPreRun(command, args)
+			}
+
+			_, err := utils.LoadDotEnv()
+			if err != nil {
+				glog.Error("%v", err)
+			}
+
+			if err := parseApplyCommand(&downRequest); err != nil {
+				glog.Error("%v", err)
+				return
+			}
+
+			if shouldOnlyApplyLast() {
+				err := utils.WithConn(downRequest.connString, applyForLastUpDelta)
+				if err != nil {
+					glog.Error("%v", err)
+					return
+				}
+				return
+			}
+
+			err = utils.WithConn(downRequest.connString, executeDownCommand)
 			if err != nil {
 				glog.Error("%v", err)
 				return
 			}
-			return
-		}
-
-		err := utils.WithConn(applyRequest.connString, executeDownCommand)
-		if err != nil {
-			glog.Error("%v", err)
-			return
-		}
-	},
-}
+		},
+	}
+)
 
 func init() {
-	applyCmd.AddCommand(downCmd)
+	cmd.RootCmd.AddCommand(downCmd)
+	downCmd.PersistentFlags().StringVarP(&downRequest.connKey, "conn-key", "k", "", "The key to fetch the environment variable value for the database connection string.")
+	downCmd.PersistentFlags().BoolVarP(&downRequest.dryRun, "dry-run", "d", false, "Performs a dry run and outputs the actions. No actions will be commited against the database.")
+	downCmd.PersistentFlags().StringVarP(&downRequest.connString, "conn-string", "s", "", "The driver specific connection string. If passed the connection key will be ignored.")
+	downCmd.PersistentFlags().BoolVar(&downRequest.PruneNoOp, "prune", false, `Enable no-operation file prunning. Scan delta files and skip applying files
+that only contains comments and empty lines. This can be useful for large replays to avoid unnessecarry database calls.`)
+	downCmd.PersistentFlags().StringVarP(&downRequest.toTag, "to", "t", "", `Specify the version to end at. Accepted formats are: 
+  4   - No Padding
+  004 - Padded zeros`)
+
+	downCmd.PersistentFlags().StringVarP(&downRequest.fromTag, "from", "f", "", `Specify the version to begin at. Accepted formats are:
+  4   - No Padding
+  004 - Padded zeros`)
+	downCmd.PersistentFlags().StringArrayVarP(&downRequest.cherryPickedVersions, "cherry-pick", "c", nil, `Specify deltas to execute againg the database.
+It is possible to cherry pick non-consecutive deltas. This is not reccomended and do so at your own risk.
+Accepted formats are:
+  4   - No Padding
+  004 - Padded zeros
+		`)
+
 }
 
 func shouldOnlyApplyLast() bool {
-	return len(applyRequest.cherryPickedVersions) == 0 && applyRequest.fromTag == "" && applyRequest.toTag == ""
+	return len(downRequest.cherryPickedVersions) == 0 && downRequest.fromTag == "" && downRequest.toTag == ""
 }
 
 // executeDownCommand runs the full "down" migration flow.
@@ -91,14 +128,14 @@ func shouldOnlyApplyLast() bool {
 // Returns:
 //   - error: non-nil if any delta fails to apply or if the schemer table update fails
 func executeDownCommand(connection *pgx.Conn, ctx context.Context) error {
-	applied, err := getAppliedDeltas(connection, ctx)
+	applied, err := GetAppliedDeltas(connection, ctx)
 	if err != nil {
 		return err
 	}
 
 	glog.Info("Found %d applied deltas", len(applied))
 
-	request, err := applyRequest.getRequestedDeltas()
+	request, err := downRequest.GetRequestedDeltas()
 	if err != nil {
 		return err
 	}
@@ -108,7 +145,7 @@ func executeDownCommand(connection *pgx.Conn, ctx context.Context) error {
 		return err
 	}
 
-	if applyRequest.PruneNoOp {
+	if downRequest.PruneNoOp {
 		PruneNoOp(&statements)
 	}
 
@@ -175,7 +212,7 @@ func executeDownCommand(connection *pgx.Conn, ctx context.Context) error {
 // Returns:
 //   - map[int][]byte: a map of tag numbers to raw SQL data for down deltas
 //   - error: non-nil if delta path resolution, file parsing, or tag extraction fails
-func loadDownDeltas(request *deltaRequest) (map[int][]byte, error) {
+func loadDownDeltas(request *DeltaRequest) (map[int][]byte, error) {
 
 	if request == nil {
 		return nil, &errschemer.SchemerErr{
@@ -277,7 +314,7 @@ func loadDownDeltas(request *deltaRequest) (map[int][]byte, error) {
 // Returns:
 //   - error: non-nil if no deltas are applied, the down delta is missing, or execution fails
 func applyForLastUpDelta(connection *pgx.Conn, ctx context.Context) error {
-	appliedDeltas, err := getAppliedDeltas(connection, ctx)
+	appliedDeltas, err := GetAppliedDeltas(connection, ctx)
 	if err != nil {
 		return err
 	}
@@ -296,7 +333,7 @@ func applyForLastUpDelta(connection *pgx.Conn, ctx context.Context) error {
 		}
 	}
 
-	request := &deltaRequest{LastTag: &lastTag}
+	request := &DeltaRequest{LastTag: &lastTag}
 
 	deltaFile, err := loadDownDeltas(request)
 	if err != nil {

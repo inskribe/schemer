@@ -34,13 +34,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
 
+	"github.com/inskribe/schemer/cmd"
 	"github.com/inskribe/schemer/internal/errschemer"
 	"github.com/inskribe/schemer/internal/glog"
 	"github.com/inskribe/schemer/internal/utils"
 )
 
 var (
-	upCmd = &cobra.Command{
+	upRequest CommandArgs
+	upCmd     = &cobra.Command{
 		Use:   "up [options]",
 		Short: "Apply all unapplied delta files in version order",
 		Long: `The up command applies unapplied deltas in sequential order.
@@ -55,8 +57,23 @@ Examples:
   schemer up --cherry-pick 004,007
   schemer up --prune-no-op
 `,
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := utils.WithConn(applyRequest.connString, executeUpCommand); err != nil {
+		Run: func(command *cobra.Command, args []string) {
+			if cmd.RootCmd.PersistentPreRun != nil {
+				cmd.RootCmd.PersistentPreRun(command, args)
+			}
+
+			_, err := utils.LoadDotEnv()
+			if err != nil {
+				glog.Error("%v", err)
+				return
+			}
+
+			if err := parseApplyCommand(&upRequest); err != nil {
+				glog.Error("%v", err)
+				return
+			}
+
+			if err := utils.WithConn(upRequest.connString, executeUpCommand); err != nil {
 				glog.Error("%v", err)
 				return
 			}
@@ -65,7 +82,26 @@ Examples:
 )
 
 func init() {
-	applyCmd.AddCommand(upCmd)
+	cmd.RootCmd.AddCommand(upCmd)
+	upCmd.PersistentFlags().StringVarP(&upRequest.connKey, "conn-key", "k", "", "The key to fetch the environment variable value for the database connection string.")
+	upCmd.PersistentFlags().BoolVarP(&upRequest.dryRun, "dry-run", "d", false, "Performs a dry run and outputs the actions. No actions will be commited against the database.")
+	upCmd.PersistentFlags().StringVarP(&upRequest.connString, "conn-string", "s", "", "The driver specific connection string. If passed the connection key will be ignored.")
+	upCmd.PersistentFlags().BoolVar(&upRequest.PruneNoOp, "prune", false, `Enable no-operation file prunning. Scan delta files and skip applying files
+that only contains comments and empty lines. This can be useful for large replays to avoid unnessecarry database calls.`)
+	upCmd.PersistentFlags().StringVarP(&upRequest.toTag, "to", "t", "", `Specify the version to end at. Accepted formats are: 
+  4   - No Padding
+  004 - Padded zeros`)
+
+	upCmd.PersistentFlags().StringVarP(&upRequest.fromTag, "from", "f", "", `Specify the version to begin at. Accepted formats are:
+  4   - No Padding
+  004 - Padded zeros`)
+	upCmd.PersistentFlags().StringArrayVarP(&upRequest.cherryPickedVersions, "cherry-pick", "c", nil, `Specify deltas to execute againg the database.
+It is possible to cherry pick non-consecutive deltas. This is not reccomended and do so at your own risk.
+Accepted formats are:
+  4   - No Padding
+  004 - Padded zeros
+		`)
+
 }
 
 // loadUpDeltas loads all eligible up deltas from the delta directory.
@@ -77,7 +113,7 @@ func init() {
 // Returns:
 //   - map[int]UpDelta: a map of tag numbers to corresponding UpDelta structs
 //   - error: non-nil if delta path can't be resolved, files can't be read, or tag parsing fails
-func loadUpDeltas(request *deltaRequest) (map[int]upDelta, error) {
+func loadUpDeltas(request *DeltaRequest) (map[int]UpDelta, error) {
 	deltaPath, err := utils.GetDeltaPath()
 	if err != nil {
 		return nil, err
@@ -93,7 +129,7 @@ func loadUpDeltas(request *deltaRequest) (map[int]upDelta, error) {
 	}
 
 	expression := regexp.MustCompile(`^(\d+)_.*\.up\.sql$`)
-	result := make(map[int]upDelta)
+	result := make(map[int]UpDelta)
 
 	for _, entry := range files {
 		if entry.IsDir() {
@@ -139,7 +175,7 @@ func loadUpDeltas(request *deltaRequest) (map[int]upDelta, error) {
 
 		}
 
-		var status postStatusEnum = NoExist
+		var status PostStatusEnum = NoExist
 		var TagWithName string
 		before, after, found := strings.Cut(entry.Name(), ".")
 		if found && after == "up.sql" {
@@ -148,7 +184,7 @@ func loadUpDeltas(request *deltaRequest) (map[int]upDelta, error) {
 				status = Pending
 			}
 		}
-		delta := upDelta{
+		delta := UpDelta{
 			Tag:        tag,
 			Data:       contents,
 			PostStatus: status,
@@ -169,14 +205,14 @@ func loadUpDeltas(request *deltaRequest) (map[int]upDelta, error) {
 // Returns:
 //   - error: non-nil if any step in the up migration process fails
 func executeUpCommand(connection *pgx.Conn, ctx context.Context) error {
-	applied, err := getAppliedDeltas(connection, ctx)
+	applied, err := GetAppliedDeltas(connection, ctx)
 	if err != nil {
 		return err
 	}
 
 	glog.Info("Found %d applied deltas", len(applied))
 
-	deltas, err := applyRequest.getRequestedDeltas()
+	deltas, err := upRequest.GetRequestedDeltas()
 	if err != nil {
 		return err
 	}
@@ -201,8 +237,8 @@ func executeUpCommand(connection *pgx.Conn, ctx context.Context) error {
 //
 // Returns:
 //   - error: non-nil if any delta fails to apply or if the schemer table update fails
-func applyUpDeltas(appliedDeltas map[int]bool, deltas map[int]upDelta, connection *pgx.Conn, ctx context.Context) error {
-	if applyRequest.PruneNoOp {
+func applyUpDeltas(appliedDeltas map[int]bool, deltas map[int]UpDelta, connection *pgx.Conn, ctx context.Context) error {
+	if upRequest.PruneNoOp {
 		PruneNoOpUp(&deltas)
 	}
 
