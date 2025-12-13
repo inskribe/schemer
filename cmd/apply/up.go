@@ -64,17 +64,17 @@ Examples:
 
 			_, err := utils.LoadDotEnv()
 			if err != nil {
-				glog.Error("%v", err)
+				glog.Error("%s", errschemer.FormatChain(err))
 				return
 			}
 
 			if err := parseApplyCommand(&upRequest); err != nil {
-				glog.Error("%v", err)
+				glog.Error("%s", errschemer.FormatChain(err))
 				return
 			}
 
 			if err := utils.WithConn(upRequest.connString, executeUpCommand); err != nil {
-				glog.Error("%v", err)
+				glog.Error("%s", errschemer.FormatChain(err))
 				return
 			}
 		},
