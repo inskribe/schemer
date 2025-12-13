@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/inskribe/schemer/compare/v0.3.0...v0.3.1) (2025-12-13)
+
+
+### Bug Fixes
+
+* **logging:** format error chain ([#12](https://github.com/inskribe/schemer/issues/12)) ([fb7eb52](https://github.com/inskribe/schemer/commit/fb7eb52f7cfa2648a87dd13b5fe7fe9fba9f699a))
+
 ## [0.3.0](https://github.com/inskribe/schemer/compare/v0.2.2...v0.3.0) (2025-07-21)
 
 
