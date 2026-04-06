@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/inskribe/schemer/compare/v0.3.1...v0.4.0) (2026-04-06)
+
+
+### Features
+
+* add support for subdirectory migration files ([1100dfc](https://github.com/inskribe/schemer/commit/1100dfc89b593aa1ed8de23bd60485fef63a15cb))
+
 ## [0.3.1](https://github.com/inskribe/schemer/compare/v0.3.0...v0.3.1) (2025-12-13)
 
 
