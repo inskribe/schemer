@@ -24,6 +24,7 @@ package apply
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -181,99 +182,88 @@ func loadPostDeltas(request *DeltaRequest, conn *pgx.Conn, ctx context.Context) 
 		return nil, err
 	}
 
-	pendingDeltas := 0
-	appliedDeltas := 0
-	for _, status := range avaliabePost {
-		if status == Applied {
-			appliedDeltas++
-		} else if status == Pending {
-			pendingDeltas++
-		}
-	}
-
-	glog.Info("\n  Found %d pending post deltas\n  Found %d applied post deltas", pendingDeltas, appliedDeltas)
-
-	entries, err := os.ReadDir(deltaPath)
-	if err != nil {
-		return nil, &errschemer.SchemerErr{
-			Code:    "0043",
-			Message: "failed to read directory at: " + deltaPath,
-			Err:     err,
-		}
-	}
-	if len(entries) == 0 {
-		return nil, &errschemer.SchemerErr{
-			Code:    "0044",
-			Message: "deltas directory is empty.",
-			Err:     nil,
-		}
-
-	}
-
 	expression := regexp.MustCompile(`^(\d+)_.*\.post\.sql$`)
 	result := make(map[int]PostDelta)
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	err = filepath.WalkDir(deltaPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return &errschemer.SchemerErr{
+				Code:    "load-post-001",
+				Message: "failed to access path: " + path,
+				Err:     err,
+			}
 		}
 
-		matches := expression.FindStringSubmatch(entry.Name())
+		if d.IsDir() {
+			return nil
+		}
+
+		matches := expression.FindStringSubmatch(d.Name())
 		if matches == nil || len(matches) < 2 {
-			continue
+			return nil
 		}
 
 		tag, err := strconv.Atoi(matches[1])
 		if err != nil {
-			return nil, &errschemer.SchemerErr{
-				Code:    "0045",
-				Message: "malformed delta tag: " + matches[0],
+			return &errschemer.SchemerErr{
+				Code:    "load-post-002",
+				Message: "malformed delta tag: " + d.Name(),
 				Err:     err,
 			}
 		}
 
 		if request.Cherries != nil {
 			if !(*request.Cherries)[tag] {
-				continue
+				return nil
 			}
 		} else {
 			if request.From != nil && tag < *request.From {
-				continue
+				return nil
 			}
 			if request.To != nil && tag > *request.To {
-				continue
+				return nil
 			}
 		}
 
-		path := filepath.Join(deltaPath, entry.Name())
 		contents, err := os.ReadFile(path)
 		if err != nil {
-			return nil, &errschemer.SchemerErr{
-				Code:    "0046",
+			return &errschemer.SchemerErr{
+				Code:    "load-post-003",
 				Message: "failed to read delta file at: " + path,
 				Err:     err,
 			}
 		}
 
 		val, exist := avaliabePost[tag]
+
 		if !exist && !postoptions.Force {
-			glog.Warn(`Skipping post delta %s: up delta %s has no knowledge of post.
-If the post delta was added after up delta was created you can apply the post delta 
-with --force to recover from current state.`, utils.ToPrefix(tag), utils.ToPrefix(tag))
-			continue
+			glog.Warn(`Skipping post delta %s: up delta %s has no knowledge of post.`,
+				utils.ToPrefix(tag), utils.ToPrefix(tag))
+			return nil
 		} else if val == Applied {
 			glog.Warn("Skipping delta %s: post has already been applied.", utils.ToPrefix(tag))
-			continue
+			return nil
 		}
 
-		postDelta := PostDelta{
+		if _, exists := result[tag]; exists {
+			return &errschemer.SchemerErr{
+				Code:    "load-post-004",
+				Message: fmt.Sprintf("duplicate post delta tag found: %03d", tag),
+			}
+		}
+
+		result[tag] = PostDelta{
 			Tag:        tag,
 			Data:       contents,
 			PostStatus: Applied,
 		}
 
-		result[tag] = postDelta
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
+
 	return result, nil
 }
 

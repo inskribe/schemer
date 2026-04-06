@@ -24,6 +24,7 @@ package apply
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -110,7 +111,6 @@ Accepted formats are:
   4   - No Padding
   004 - Padded zeros
 		`)
-
 }
 
 func shouldOnlyApplyLast() bool {
@@ -187,7 +187,6 @@ func executeDownCommand(connection *pgx.Conn, ctx context.Context) error {
 	if len(executedDeltas) > 0 {
 		schemerStatement := fmt.Sprintf(`DELETE FROM schemer WHERE (tag) IN (%s)`, strings.Join(placeholders, ", "))
 		_, err = connection.Exec(ctx, schemerStatement, executedDeltas...)
-
 		// If there is a migration error, wrap both errors.
 		if err != nil {
 			tableErr := &errschemer.SchemerErr{
@@ -213,10 +212,9 @@ func executeDownCommand(connection *pgx.Conn, ctx context.Context) error {
 //   - map[int][]byte: a map of tag numbers to raw SQL data for down deltas
 //   - error: non-nil if delta path resolution, file parsing, or tag extraction fails
 func loadDownDeltas(request *DeltaRequest) (map[int][]byte, error) {
-
 	if request == nil {
 		return nil, &errschemer.SchemerErr{
-			Code:    "0030",
+			Code:    "load-down-deltas-001",
 			Message: "expected valid deltaRequest, recieved nil",
 		}
 	}
@@ -226,79 +224,89 @@ func loadDownDeltas(request *DeltaRequest) (map[int][]byte, error) {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(deltaPath)
-	if err != nil {
-		return nil, &errschemer.SchemerErr{
-			Code:    "0031",
-			Message: "failed to read directory from path: " + deltaPath,
-			Err:     err,
-		}
-	}
-
 	expression := regexp.MustCompile(`^(\d+)_.*\.down\.sql$`)
 	result := make(map[int][]byte)
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	err = filepath.WalkDir(deltaPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return &errschemer.SchemerErr{
+				Code:    "load-down-deltas-002",
+				Message: "failed to access path: " + path,
+				Err:     err,
+			}
 		}
 
-		matches := expression.FindStringSubmatch(entry.Name())
-		if matches == nil || len(matches) < 2 {
-			continue
+		if d.IsDir() {
+			return nil
 		}
+
+		matches := expression.FindStringSubmatch(d.Name())
+		if matches == nil || len(matches) < 2 {
+			return nil
+		}
+
 		tag, err := strconv.Atoi(matches[1])
 		if err != nil {
-			return nil, &errschemer.SchemerErr{
-				Code:    "0032",
-				Message: "malformed filename: " + matches[0],
+			return &errschemer.SchemerErr{
+				Code:    "load-down-deltas-003",
+				Message: "malformed filename: " + d.Name(),
 				Err:     err,
 			}
 		}
 
 		if request.LastTag != nil {
 			if tag != *request.LastTag {
-				continue
+				return nil
 			}
 
-			path := filepath.Join(deltaPath, entry.Name())
 			contents, err := os.ReadFile(path)
 			if err != nil {
-				return nil, &errschemer.SchemerErr{
-					Code:    "0033",
+				return &errschemer.SchemerErr{
+					Code:    "load-down-deltas-004",
 					Message: "failed to read file at path: " + path,
 					Err:     err,
 				}
 			}
 
 			result[tag] = contents
-			return result, nil
+
+			return filepath.SkipDir
 		}
 
 		if request.Cherries != nil {
 			if !(*request.Cherries)[tag] {
-				continue
+				return nil
 			}
 		} else {
 			if request.From != nil && tag > *request.From {
-				continue
+				return nil
 			}
 			if request.To != nil && tag < *request.To {
-				continue
+				return nil
 			}
 		}
 
-		path := filepath.Join(deltaPath, entry.Name())
 		contents, err := os.ReadFile(path)
 		if err != nil {
-			return nil, &errschemer.SchemerErr{
-				Code:    "0034",
+			return &errschemer.SchemerErr{
+				Code:    "load-down-deltas-005",
 				Message: "failed to read file at path: " + path,
 				Err:     err,
 			}
 		}
 
+		if _, exists := result[tag]; exists {
+			return &errschemer.SchemerErr{
+				Code:    "load-down-deltas-006",
+				Message: fmt.Sprintf("duplicate down delta tag found: %03d", tag),
+			}
+		}
+
 		result[tag] = contents
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return result, nil
@@ -364,7 +372,6 @@ func applyForLastUpDelta(connection *pgx.Conn, ctx context.Context) error {
 
 	schemerStatement := `DELETE FROM schemer WHERE (tag) IN ($1)`
 	_, err = connection.Exec(ctx, schemerStatement, lastTag)
-
 	// If there is a execution error, wrap both errors.
 	if err != nil {
 		tableErr := &errschemer.SchemerErr{

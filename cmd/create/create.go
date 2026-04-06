@@ -22,6 +22,7 @@ THE SOFTWARE.
 package create
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,7 +39,8 @@ import (
 
 // Represents user input for create command.
 type CreateCmdRequest struct {
-	Post bool // Identifies if the user requested a post file to be created.
+	Post      bool   // Identifies if the user requested a post file to be created.
+	Directory string // Optional directory to create the delta files in. If empty, defaults to the deltas directory in the current working directory.
 }
 
 var (
@@ -79,6 +81,7 @@ It simply prepares the file structure for future use.
 func init() {
 	cmd.RootCmd.AddCommand(createCmd)
 	createCmd.Flags().BoolVarP(&CreateRequest.Post, "post", "p", false, `Create a post delta along with the up and down deltas.`)
+	createCmd.Flags().StringVarP(&CreateRequest.Directory, "directory", "d", "", `Optional directory to create the delta files in. Defaults to the deltas directory in the current working directory.`)
 }
 
 // determineNextTag returns the next available delta tag for a new delta file group.
@@ -91,45 +94,58 @@ func init() {
 //   - int: the next tag number (0 if directory is empty)
 //   - error: non-nil if the directory can't be read or a tag can't be parsed
 func determineNextTag(deltaPath string) (int, error) {
-	files, err := os.ReadDir(deltaPath)
+	next := 0
+	seen := make(map[int]string)
+
+	expression := regexp.MustCompile(`^(\d+)_.*\.up\.sql$`)
+	err := filepath.WalkDir(deltaPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		if strings.HasSuffix(d.Name(), ".up.sql") {
+			name := d.Name()
+			matches := expression.FindStringSubmatch(name)
+			if matches == nil || len(matches) < 2 {
+				return nil
+			}
+
+			tag, err := strconv.Atoi(matches[1])
+			if err != nil {
+				return &errschemer.SchemerErr{
+					Code:    "determine-next-tag-002",
+					Message: "malformed delta tag found in filename: " + matches[0],
+					Err:     err,
+				}
+			}
+
+			if existing, exists := seen[tag]; exists {
+				return &errschemer.SchemerErr{
+					Code:    "determine-next-tag-004",
+					Message: "duplicate delta tag found: " + strconv.Itoa(tag) + " in files: " + existing + " and " + name,
+				}
+			}
+
+			seen[tag] = d.Name()
+
+			if tag > next {
+				next = tag
+			}
+
+			return nil
+		}
+
+		return nil
+	})
 	if err != nil {
 		return -1, &errschemer.SchemerErr{
-			Code:    "0056",
-			Message: "failed to read directory at: " + deltaPath,
+			Code:    "determine-next-tag-003",
+			Message: "failed to determine next tag: " + deltaPath,
 			Err:     err,
-		}
-	}
-
-	// exit early if empty.
-	if len(files) == 0 {
-		return 0, nil
-	}
-
-	expression := regexp.MustCompile(`^(\d+)_.*\.*\.sql$`)
-
-	next := -1
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-
-		name := file.Name()
-		matches := expression.FindStringSubmatch(name)
-		if matches == nil || len(matches) < 2 {
-			continue
-		}
-
-		tag, err := strconv.Atoi(matches[1])
-		if err != nil {
-			return -1, &errschemer.SchemerErr{
-				Code:    "0055",
-				Message: "malformed delta tag: " + matches[0],
-				Err:     err,
-			}
-		}
-
-		if tag > next {
-			next = tag
 		}
 	}
 
@@ -150,7 +166,6 @@ func determineNextTag(deltaPath string) (int, error) {
 //
 // If an error is returned, it will be of type PathError.
 func createDeltaFiles(filename string, nextTag int, deltaPath string) error {
-
 	ErrAlreadExist := "delta file alread exist for: "
 	name := strings.Join([]string{utils.ToPrefix(nextTag), strings.Trim(filename, "_")}, "_")
 
@@ -240,12 +255,27 @@ func executeCreateCommand(args []string) error {
 		return err
 	}
 
+	targetPath := deltaPath
+	if CreateRequest.Directory != "" {
+		targetPath = filepath.Join(deltaPath, CreateRequest.Directory)
+	}
+
+	targetPath = filepath.Clean(targetPath)
+
 	nextTag, err := determineNextTag(deltaPath)
 	if err != nil {
 		return err
 	}
 
-	if err := createDeltaFiles(args[0], nextTag, deltaPath); err != nil {
+	if err := os.MkdirAll(targetPath, os.ModePerm); err != nil {
+		return &errschemer.SchemerErr{
+			Code:    "execute-create-001",
+			Message: "failed to create target directory: " + targetPath,
+			Err:     err,
+		}
+	}
+
+	if err := createDeltaFiles(args[0], nextTag, targetPath); err != nil {
 		return err
 	}
 	return nil
