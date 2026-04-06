@@ -2,6 +2,8 @@ package apply
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/inskribe/schemer/internal/utils"
@@ -162,7 +164,138 @@ func TestExecutePostCommand(t *testing.T) {
 					t.Errorf("tag %s:: expected status %v, got %v", utils.ToPrefix(tag), expectedStatus, gotStatus)
 				}
 			}
-
 		})
+	}
+}
+
+func TestLoadPostDeltas_Recursive(t *testing.T) {
+	tempDir := t.TempDir()
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	files := map[string]string{
+		"001_root.post.sql":                "-- root post",
+		"users/002_add_user.post.sql":      "-- users post",
+		"billing/003_add_invoice.post.sql": "-- billing post",
+	}
+
+	for rel, contents := range files {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatalf("failed to write %s: %v", rel, err)
+		}
+	}
+
+	tu.SetupTestTable(t)
+	if _, err := tu.SharedConnection.Exec(context.Background(),
+		`INSERT INTO schemer (tag, post_status) VALUES (1,1),(2,1),(3,1)`); err != nil {
+		t.Fatalf("failed to insert mock data: %v", err)
+	}
+
+	deltas, err := loadPostDeltas(&DeltaRequest{}, tu.SharedConnection, context.Background())
+	if err != nil {
+		t.Fatalf("failed to load post deltas: %v", err)
+	}
+
+	if len(deltas) != 3 {
+		t.Fatalf("expected 3 post deltas, received %d", len(deltas))
+	}
+
+	for _, tag := range []int{1, 2, 3} {
+		if _, ok := deltas[tag]; !ok {
+			t.Fatalf("expected delta %03d to be loaded", tag)
+		}
+	}
+}
+
+func TestLoadPostDeltas_Recursive_FromTo(t *testing.T) {
+	tempDir := t.TempDir()
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	files := []string{
+		"001_root.post.sql",
+		"users/002_add_user.post.sql",
+		"billing/003_add_invoice.post.sql",
+	}
+
+	for _, rel := range files {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte("-- test"), 0o644); err != nil {
+			t.Fatalf("failed to write %s: %v", rel, err)
+		}
+	}
+
+	tu.SetupTestTable(t)
+	if _, err := tu.SharedConnection.Exec(context.Background(),
+		`INSERT INTO schemer (tag, post_status) VALUES (1,1),(2,1),(3,1)`); err != nil {
+		t.Fatalf("failed to insert mock data: %v", err)
+	}
+
+	deltas, err := loadPostDeltas(&DeltaRequest{
+		From: tu.Ptr(2),
+		To:   tu.Ptr(2),
+	}, tu.SharedConnection, context.Background())
+	if err != nil {
+		t.Fatalf("failed to load post deltas: %v", err)
+	}
+
+	if len(deltas) != 1 {
+		t.Fatalf("expected 1 delta, received %d", len(deltas))
+	}
+
+	if _, ok := deltas[2]; !ok {
+		t.Fatalf("expected delta 002 to be loaded")
+	}
+	if _, ok := deltas[1]; ok {
+		t.Fatalf("did not expect delta 001 to be loaded")
+	}
+	if _, ok := deltas[3]; ok {
+		t.Fatalf("did not expect delta 003 to be loaded")
+	}
+}
+
+func TestLoadPostDeltas_Recursive_Force(t *testing.T) {
+	tempDir := t.TempDir()
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	full := filepath.Join(tempDir, "users", "002_add_user.post.sql")
+	if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(full, []byte("-- test"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	tu.SetupTestTable(t)
+
+	postoptions.Force = false
+	deltas, err := loadPostDeltas(&DeltaRequest{}, tu.SharedConnection, context.Background())
+	if err != nil {
+		t.Fatalf("failed to load post deltas without force: %v", err)
+	}
+	if _, ok := deltas[2]; ok {
+		t.Fatalf("did not expect delta 002 without force")
+	}
+
+	postoptions.Force = true
+	defer func() { postoptions.Force = false }()
+
+	deltas, err = loadPostDeltas(&DeltaRequest{}, tu.SharedConnection, context.Background())
+	if err != nil {
+		t.Fatalf("failed to load post deltas with force: %v", err)
+	}
+	if _, ok := deltas[2]; !ok {
+		t.Fatalf("expected delta 002 with force")
 	}
 }
