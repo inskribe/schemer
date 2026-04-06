@@ -24,6 +24,7 @@ package apply
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -101,7 +102,6 @@ Accepted formats are:
   4   - No Padding
   004 - Padded zeros
 		`)
-
 }
 
 // loadUpDeltas loads all eligible up deltas from the delta directory.
@@ -118,69 +118,65 @@ func loadUpDeltas(request *DeltaRequest) (map[int]UpDelta, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	files, err := os.ReadDir(deltaPath)
-	if err != nil {
-		return nil, &errschemer.SchemerErr{
-			Code:    "0049",
-			Message: "failed to read directory at: " + deltaPath,
-			Err:     err,
-		}
-	}
-
 	expression := regexp.MustCompile(`^(\d+)_.*\.up\.sql$`)
 	result := make(map[int]UpDelta)
 
-	for _, entry := range files {
-		if entry.IsDir() {
-			continue
+	err = filepath.WalkDir(deltaPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return &errschemer.SchemerErr{
+				Code:    "load-up-001",
+				Message: "failed to access path: " + path,
+				Err:     err,
+			}
+		}
+		if d.IsDir() {
+			return nil
 		}
 
-		matches := expression.FindStringSubmatch(entry.Name())
+		matches := expression.FindStringSubmatch(d.Name())
 		if matches == nil || len(matches) < 2 {
-			continue
+			return nil
 		}
 
 		tag, err := strconv.Atoi(matches[1])
 		if err != nil {
-			return nil, &errschemer.SchemerErr{
-				Code:    "0050",
-				Message: "malformed delta tag" + matches[0],
+			return &errschemer.SchemerErr{
+				Code:    "load-up-002",
+				Message: "malformed delta tag in file: " + d.Name(),
 				Err:     err,
 			}
-
 		}
 
 		if request.Cherries != nil {
 			if !(*request.Cherries)[tag] {
-				continue
+				return nil
 			}
 		} else {
 			if request.From != nil && tag < *request.From {
-				continue
+				return nil
 			}
 			if request.To != nil && tag > *request.To {
-				continue
+				return nil
 			}
 		}
 
-		path := filepath.Join(deltaPath, entry.Name())
 		contents, err := os.ReadFile(path)
 		if err != nil {
-			return nil, &errschemer.SchemerErr{
-				Code:    "0051",
+			return &errschemer.SchemerErr{
+				Code:    "load-up-003",
 				Message: "failed to read file at: " + path,
 				Err:     err,
 			}
-
 		}
 
 		var status PostStatusEnum = NoExist
 		var TagWithName string
-		before, after, found := strings.Cut(entry.Name(), ".")
+		before, after, found := strings.Cut(d.Name(), ".")
 		if found && after == "up.sql" {
 			TagWithName = before
-			if _, err := os.Stat(filepath.Join(deltaPath, strings.Join([]string{TagWithName, "post", "sql"}, "."))); err == nil {
+			dirtory := filepath.Dir(path)
+			if _,
+				err := os.Stat(filepath.Join(dirtory, strings.Join([]string{TagWithName, "post", "sql"}, "."))); err == nil {
 				status = Pending
 			}
 		}
@@ -190,8 +186,20 @@ func loadUpDeltas(request *DeltaRequest) (map[int]UpDelta, error) {
 			PostStatus: status,
 		}
 
+		if _, exists := result[tag]; exists {
+			return &errschemer.SchemerErr{
+				Code:    "load-up-004",
+				Message: "duplicate delta tag found: " + strconv.Itoa(tag) + " in file: " + d.Name(),
+			}
+		}
+
 		result[tag] = delta
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
+
 	return result, nil
 }
 
@@ -258,7 +266,6 @@ func applyUpDeltas(appliedDeltas map[int]bool, deltas map[int]UpDelta, connectio
 			Message: "all requested deltas have been already applied.",
 			Err:     nil,
 		}
-
 	}
 
 	/*

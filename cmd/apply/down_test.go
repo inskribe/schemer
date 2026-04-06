@@ -3,6 +3,8 @@ package apply
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -86,7 +88,6 @@ func TestDownCommand(t *testing.T) {
 				if count != 0 {
 					t.Fatalf("expected zero rows,but found %d", count)
 				}
-
 			},
 		},
 	}
@@ -101,7 +102,6 @@ func TestDownCommand(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-
 			tu.SetupTestTable(t)
 
 			insertStatement := `INSERT INTO schemer (tag) VALUES (0),(1),(2),(3)`
@@ -172,26 +172,7 @@ func TestLoadDownDeltas(t *testing.T) {
 			name:    "From_002",
 			request: &DeltaRequest{From: tu.Ptr(2)},
 			verify: func(args *DeltaRequest) {
-				deltas, err := loadUpDeltas(args)
-				if err != nil {
-					t.Fatalf("loadUpDeltas failed: %v", err)
-				}
-				if _, ok := deltas[1]; ok {
-					t.Fatalf("delta 001 loaded, expected delta 002,003")
-				}
-				if _, ok := deltas[2]; !ok {
-					t.Fatalf("delta 002 failed to load")
-				}
-				if _, ok := deltas[3]; !ok {
-					t.Fatalf("delta 003 failed to load")
-				}
-			},
-		},
-		{
-			name:    "To_001",
-			request: &DeltaRequest{To: tu.Ptr(1)},
-			verify: func(args *DeltaRequest) {
-				deltas, err := loadUpDeltas(args)
+				deltas, err := loadDownDeltas(args)
 				if err != nil {
 					t.Fatalf("loadUpDeltas failed: %v", err)
 				}
@@ -201,11 +182,33 @@ func TestLoadDownDeltas(t *testing.T) {
 				if _, ok := deltas[1]; !ok {
 					t.Fatalf("delta 001 failed to load")
 				}
-				if _, ok := deltas[2]; ok {
-					t.Fatalf("delta 002 loaded, expected delta 000,001")
+				if _, ok := deltas[2]; !ok {
+					t.Fatalf("delta 002 failed to load")
 				}
 				if _, ok := deltas[3]; ok {
-					t.Fatalf("delta 003 loaded, expected delta 000, 001")
+					t.Fatalf("delta 003 loaded, expected delta 000,001,002")
+				}
+			},
+		},
+		{
+			name:    "To_001",
+			request: &DeltaRequest{To: tu.Ptr(1)},
+			verify: func(args *DeltaRequest) {
+				deltas, err := loadDownDeltas(args)
+				if err != nil {
+					t.Fatalf("loadDownDeltas failed: %v", err)
+				}
+				if _, ok := deltas[0]; ok {
+					t.Fatalf("delta 000 loaded, expected delta 001 and above only")
+				}
+				if _, ok := deltas[1]; !ok {
+					t.Fatalf("delta 001 failed to load")
+				}
+				if _, ok := deltas[2]; !ok {
+					t.Fatalf("delta 002 failed to load")
+				}
+				if _, ok := deltas[3]; !ok {
+					t.Fatalf("delta 003 failed to load")
 				}
 			},
 		},
@@ -267,7 +270,6 @@ func TestApplyForLastUpDelta(t *testing.T) {
 	}
 
 	t.Fatalf("expected delta 002 not to be applied, recived tag: %s, post_status: %s", utils.ToPrefix(tag), status.String())
-
 }
 
 func TestExecuteDownCommand(t *testing.T) {
@@ -342,14 +344,12 @@ func TestExecuteDownCommand(t *testing.T) {
 				if count != 0 {
 					t.Fatalf("expected zero rows,but found %d", count)
 				}
-
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-
 			tu.SetupTestTable(t)
 
 			insertStatement := `INSERT INTO schemer (tag) VALUES (0),(1),(2),(3)`
@@ -363,5 +363,129 @@ func TestExecuteDownCommand(t *testing.T) {
 			}
 			tc.verify()
 		})
+	}
+}
+
+func TestLoadDownDeltas_Recursive(t *testing.T) {
+	tempDir := t.TempDir()
+
+	files := map[string]string{
+		"001_root.down.sql":                "-- root down",
+		"users/002_add_user.down.sql":      "-- users down",
+		"billing/003_add_invoice.down.sql": "-- billing down",
+	}
+
+	for rel, contents := range files {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatalf("failed to write %s: %v", rel, err)
+		}
+	}
+
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	deltas, err := loadDownDeltas(&DeltaRequest{})
+	if err != nil {
+		t.Fatalf("failed to load down deltas: %v", err)
+	}
+
+	if len(deltas) != 3 {
+		t.Fatalf("expected 3 down deltas, received %d", len(deltas))
+	}
+
+	for _, tag := range []int{1, 2, 3} {
+		if _, ok := deltas[tag]; !ok {
+			t.Fatalf("expected delta %03d to be loaded", tag)
+		}
+	}
+}
+
+func TestLoadDownDeltas_Recursive_FromTo(t *testing.T) {
+	tempDir := t.TempDir()
+
+	files := []string{
+		"001_root.down.sql",
+		"users/002_add_user.down.sql",
+		"billing/003_add_invoice.down.sql",
+	}
+
+	for _, rel := range files {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte("-- test"), 0o644); err != nil {
+			t.Fatalf("failed to write %s: %v", rel, err)
+		}
+	}
+
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	deltas, err := loadDownDeltas(&DeltaRequest{
+		From: tu.Ptr(2),
+		To:   tu.Ptr(2),
+	})
+	if err != nil {
+		t.Fatalf("failed to load down deltas: %v", err)
+	}
+
+	if len(deltas) != 1 {
+		t.Fatalf("expected 1 delta, received %d", len(deltas))
+	}
+
+	if _, ok := deltas[2]; !ok {
+		t.Fatalf("expected delta 002 to be loaded")
+	}
+	if _, ok := deltas[1]; ok {
+		t.Fatalf("did not expect delta 001 to be loaded")
+	}
+	if _, ok := deltas[3]; ok {
+		t.Fatalf("did not expect delta 003 to be loaded")
+	}
+}
+
+func TestLoadDownDeltas_LastTag_Recursive(t *testing.T) {
+	tempDir := t.TempDir()
+
+	files := []string{
+		"001_root.down.sql",
+		"users/002_add_user.down.sql",
+		"billing/003_add_invoice.down.sql",
+	}
+
+	for _, rel := range files {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte("-- test"), 0o644); err != nil {
+			t.Fatalf("failed to write %s: %v", rel, err)
+		}
+	}
+
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	deltas, err := loadDownDeltas(&DeltaRequest{
+		LastTag: tu.Ptr(3),
+	})
+	if err != nil {
+		t.Fatalf("failed to load down deltas: %v", err)
+	}
+
+	if len(deltas) != 1 {
+		t.Fatalf("expected 1 delta, received %d", len(deltas))
+	}
+
+	if _, ok := deltas[3]; !ok {
+		t.Fatalf("expected delta 003 to be loaded")
 	}
 }

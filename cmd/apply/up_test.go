@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/inskribe/schemer/internal/templates"
@@ -118,8 +119,8 @@ func TestApplyUpDeltas(t *testing.T) {
 	upRequest = CommandArgs{PruneNoOp: false}
 
 	deltas := map[int]UpDelta{
-		0: UpDelta{Tag: 0, Data: []byte(""), PostStatus: Pending},
-		1: UpDelta{Tag: 1, Data: []byte(""), PostStatus: NoExist},
+		0: {Tag: 0, Data: []byte(""), PostStatus: Pending},
+		1: {Tag: 1, Data: []byte(""), PostStatus: NoExist},
 	}
 	applied := map[int]bool{}
 
@@ -162,7 +163,6 @@ func TestApplyUpDeltas(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("error after row iteration: %v", err)
 	}
-
 }
 
 func TestExecuteUpCommand(t *testing.T) {
@@ -221,5 +221,102 @@ func TestExecuteUpCommand(t *testing.T) {
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("error after row iteration: %v", err)
+	}
+}
+
+func TestLoadUpDeltas_Recursive(t *testing.T) {
+	tempDir := t.TempDir()
+
+	files := map[string]string{
+		"001_root.up.sql":                  "-- root up",
+		"001_root.post.sql":                "-- root post",
+		"users/002_add_user.up.sql":        "-- users up",
+		"users/002_add_user.post.sql":      "-- users post",
+		"billing/003_add_invoice.up.sql":   "-- billing up",
+		"billing/003_add_invoice.down.sql": "-- billing down",
+	}
+
+	for rel, contents := range files {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+			t.Fatalf("failed to write %s: %v", rel, err)
+		}
+	}
+
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	deltas, err := loadUpDeltas(&DeltaRequest{})
+	if err != nil {
+		t.Fatalf("loadUpDeltas failed: %v", err)
+	}
+
+	if len(deltas) != 3 {
+		t.Fatalf("expected 3 up deltas, received %d", len(deltas))
+	}
+
+	if delta, ok := deltas[1]; !ok {
+		t.Fatalf("expected delta 001 to be loaded")
+	} else if delta.PostStatus != Pending {
+		t.Fatalf("expected delta 001 post status Pending, got %+v", delta.PostStatus)
+	}
+
+	if delta, ok := deltas[2]; !ok {
+		t.Fatalf("expected delta 002 to be loaded")
+	} else if delta.PostStatus != Pending {
+		t.Fatalf("expected delta 002 post status Pending, got %+v", delta.PostStatus)
+	}
+
+	if delta, ok := deltas[3]; !ok {
+		t.Fatalf("expected delta 003 to be loaded")
+	} else if delta.PostStatus != NoExist {
+		t.Fatalf("expected delta 003 post status NoExist, got %+v", delta.PostStatus)
+	}
+}
+
+func TestLoadUpDeltas_Recursive_FromTo(t *testing.T) {
+	tempDir := t.TempDir()
+
+	files := []string{
+		"root/001_root.up.sql",
+		"users/002_add_user.up.sql",
+		"billing/003_add_invoice.up.sql",
+	}
+
+	for _, rel := range files {
+		full := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), os.ModePerm); err != nil {
+			t.Fatalf("failed to create dir for %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte("-- test"), 0o644); err != nil {
+			t.Fatalf("failed to write %s: %v", rel, err)
+		}
+	}
+
+	utils.GetDeltaPath = func() (string, error) {
+		return tempDir, nil
+	}
+
+	deltas, err := loadUpDeltas(&DeltaRequest{From: tu.Ptr(2), To: tu.Ptr(2)})
+	if err != nil {
+		t.Fatalf("loadUpDeltas failed: %v", err)
+	}
+
+	if len(deltas) != 1 {
+		t.Fatalf("expected 1 delta, received %d", len(deltas))
+	}
+
+	if _, ok := deltas[2]; !ok {
+		t.Fatalf("expected delta 002 to be loaded")
+	}
+	if _, ok := deltas[1]; ok {
+		t.Fatalf("did not expect delta 001 to be loaded")
+	}
+	if _, ok := deltas[3]; ok {
+		t.Fatalf("did not expect delta 003 to be loaded")
 	}
 }
