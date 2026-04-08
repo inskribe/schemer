@@ -42,6 +42,7 @@ import (
 )
 
 var (
+	downForce   bool
 	downRequest CommandArgs
 	downCmd     = &cobra.Command{
 		Use:   "down [options]",
@@ -111,6 +112,10 @@ Accepted formats are:
   4   - No Padding
   004 - Padded zeros
 		`)
+
+	downCmd.PersistentFlags().BoolVarP(&downForce, "force", "", false, `Force applying down deltas even if the corresponding up delta is not applied.
+This can be useful for rolling back changes that were applied outside of schemer or for recovering from an inconsistent state, 
+but use with caution as it can lead to an inconsistent state between the database and schemer's tracking.`)
 }
 
 func shouldOnlyApplyLast() bool {
@@ -150,14 +155,19 @@ func executeDownCommand(connection *pgx.Conn, ctx context.Context) error {
 	}
 
 	var deltasToApply []int
+	var skippedDeltas []string
 
 	for tag := range statements {
 		_, ok := applied[tag]
-		if !ok {
-			glog.Warn("Skipping delta %s: present in migration directory but not currently applied.", utils.ToPrefix(tag))
+		if !ok && !downForce {
+			skippedDeltas = append(skippedDeltas, utils.ToPrefix(tag))
 			continue
 		}
 		deltasToApply = append(deltasToApply, tag)
+	}
+
+	if len(skippedDeltas) > 0 {
+		glog.Warn("The following deltas were skipped because they are not currently applied: %s \n use --force to apply them", strings.Join(skippedDeltas, ", "))
 	}
 
 	sort.Sort(sort.Reverse(sort.IntSlice(deltasToApply)))

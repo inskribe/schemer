@@ -280,9 +280,11 @@ func TestExecuteDownCommand(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name    string
-		request CommandArgs
-		verify  func()
+		name      string
+		request   CommandArgs
+		force     bool
+		insertSQL string
+		verify    func()
 	}{
 		{
 			name:    "load_all",
@@ -346,13 +348,74 @@ func TestExecuteDownCommand(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:      "Skip_Unapplied_Without_Force",
+			request:   CommandArgs{cherryPickedVersions: []string{"000", "003"}},
+			force:     false,
+			insertSQL: `INSERT INTO schemer (tag) VALUES (0)`,
+			verify: func() {
+				var count int
+
+				err := tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer WHERE tag = 0`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 0 {
+					t.Fatalf("expected tag 000 to be removed, found %d rows", count)
+				}
+
+				err = tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer WHERE tag = 3`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 0 {
+					t.Fatalf("expected tag 003 to remain absent, found %d rows", count)
+				}
+			},
+		},
+		{
+			name:      "Apply_Unapplied_With_Force",
+			request:   CommandArgs{cherryPickedVersions: []string{"000", "003"}},
+			force:     true,
+			insertSQL: `INSERT INTO schemer (tag) VALUES (0)`,
+			verify: func() {
+				var count int
+
+				err := tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer WHERE tag = 0`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 0 {
+					t.Fatalf("expected tag 000 to be removed, found %d rows", count)
+				}
+
+				err = tu.SharedConnection.QueryRow(context.Background(),
+					`SELECT COUNT(*) FROM schemer WHERE tag = 3`).Scan(&count)
+				if err != nil {
+					t.Fatalf("failed to count rows: %v", err)
+				}
+				if count != 0 {
+					t.Fatalf("expected tag 003 to still be absent from schemer, found %d rows", count)
+				}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tu.SetupTestTable(t)
+			previousForce := downForce
+			downForce = tc.force
+			defer func() { downForce = previousForce }()
 
-			insertStatement := `INSERT INTO schemer (tag) VALUES (0),(1),(2),(3)`
+			insertStatement := tc.insertSQL
+			if insertStatement == "" {
+				insertStatement = `INSERT INTO schemer (tag) VALUES (0),(1),(2),(3)`
+			}
+
 			if _, err := tu.SharedConnection.Exec(context.Background(), insertStatement); err != nil {
 				t.Fatalf("failed to insert statement: %s\n v\nadditionaly: %v", insertStatement, err)
 			}
