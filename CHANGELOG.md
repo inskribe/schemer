@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/inskribe/schemer/compare/v0.4.0...v0.5.0) (2026-04-08)
+
+
+### Features
+
+* **down:** update down command to allow force option ([#16](https://github.com/inskribe/schemer/issues/16)) ([20c36e3](https://github.com/inskribe/schemer/commit/20c36e33d8b7a806d2c0a75ca59b31340f3d98cf))
+
 ## [0.4.0](https://github.com/inskribe/schemer/compare/v0.3.1...v0.4.0) (2026-04-06)
 
 
